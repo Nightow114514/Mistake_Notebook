@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>截图标签管理器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>截图标签管理器</h1>
+      <div class="toolbar">
+        <button id="importBtn" class="btn btn-primary">导入截图</button>
+        <button id="exportPdfBtn" class="btn btn-secondary">导出PDF</button>
+      </div>
+    </header>
+
+    <div class="main-content">
+      <aside id="sidebar" class="sidebar">
+        <section class="sidebar-section">
+          <h3>筛选标签</h3>
+          <div id="filterTags" class="filter-tags"></div>
+          <div class="random-pick">
+            <input type="number" id="randomCount" min="1" value="1" class="input-sm" title="抽取数量">
+            <button id="randomPickBtn" class="btn btn-sm btn-accent">随机抽取</button>
+          </div>
+          <button id="clearFilterBtn" class="btn btn-sm btn-ghost">清除筛选</button>
+        </section>
+
+        <section class="sidebar-section">
+          <h3>标签管理</h3>
+          <div class="add-tag-form">
+            <input type="text" id="newTagName" placeholder="标签名称" maxlength="20">
+            <input type="color" id="newTagColor" value="#3b82f6">
+            <button id="addTagBtn" class="btn btn-sm btn-primary">添加</button>
+          </div>
+          <ul id="tagList" class="tag-list"></ul>
+        </section>
+      </aside>
+
+      <main id="imageGrid" class="image-grid">
+        <div id="dropZone" class="drop-zone">
+          <div class="drop-zone-content">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            <p>拖拽图片到此处导入</p>
+            <p class="hint">或点击上方「导入截图」按钮</p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="contextMenu" class="context-menu hidden">
+    <div class="context-item" data-action="tagManage">管理标签</div>
+    <div class="context-item context-item-danger" data-action="delete">删除图片</div>
+  </div>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalTitle">标题</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

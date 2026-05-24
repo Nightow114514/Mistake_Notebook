@@ -1,0 +1,16 @@
+{
+  "name": "screenshot-manager",
+  "version": "1.0.0",
+  "description": "本地截图标签管理器",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "sql.js": "^1.12.0"
+  },
+  "devDependencies": {
+    "electron": "^35.6.1"
+  }
+}
