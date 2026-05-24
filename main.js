@@ -16,6 +16,7 @@ function ensureStorageDir() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    title: '错题笔记本',
     width: 1200,
     height: 800,
     minWidth: 900,

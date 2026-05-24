@@ -1,7 +1,7 @@
 {
-  "name": "screenshot-manager",
+  "name": "mistake-notebook",
   "version": "1.0.0",
-  "description": "本地截图标签管理器",
+  "description": "错题笔记本",
   "main": "main.js",
   "scripts": {
     "start": "electron ."
