@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   importImages: () => ipcRenderer.invoke('image:import'),
   importPaths: (filePaths) => ipcRenderer.invoke('image:importPaths', filePaths),
+  importFileData: (filesData) => ipcRenderer.invoke('image:importFileData', filesData),
   getImages: (tagIds) => ipcRenderer.invoke('image:getAll', tagIds),
   getThumbnail: (id) => ipcRenderer.invoke('image:getThumbnail', id),
   getFullImage: (id) => ipcRenderer.invoke('image:getFull', id),

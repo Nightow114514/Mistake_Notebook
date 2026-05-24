@@ -113,6 +113,51 @@ function registerIpcHandlers() {
     return importFiles(filePaths);
   });
 
+  // --- Image import via file data (FileReader fallback for drag-drop) ---
+  ipcMain.handle('image:importFileData', (_event, filesData) => {
+    if (!filesData || filesData.length === 0) return [];
+    const storageDir = ensureStorageDir();
+    const imported = [];
+
+    for (const { name, data } of filesData) {
+      const buffer = Buffer.from(data);
+      const ext = path.extname(name);
+      const originalName = path.basename(name);
+      const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+      const destPath = path.join(storageDir, filename);
+
+      fs.writeFileSync(destPath, buffer);
+
+      const stat = fs.statSync(destPath);
+      const format = ext.replace('.', '').toLowerCase();
+
+      const id = db.addImage({
+        filename,
+        originalName,
+        filePath: destPath,
+        fileSize: stat.size,
+        format,
+      });
+
+      const img = nativeImage.createFromPath(destPath);
+      const size = img.getSize();
+
+      imported.push({
+        id,
+        filename,
+        original_name: originalName,
+        file_size: stat.size,
+        width: size.width,
+        height: size.height,
+        format,
+        tags: [],
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    return imported;
+  });
+
   // --- Get all images (optionally filtered by tags) ---
   ipcMain.handle('image:getAll', (_event, tagIds) => {
     return db.getImages(tagIds);

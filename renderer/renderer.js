@@ -313,6 +313,55 @@ function updateSelectionBar() {
 }
 
 // --- Global drag-drop (for entire window) ---
+function getImageFiles(dataTransfer) {
+  const files = dataTransfer.files;
+  if (!files || files.length === 0) return [];
+  return Array.from(files).filter(f => /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(f.name));
+}
+
+async function importFromDrop(dataTransfer) {
+  const imgFiles = getImageFiles(dataTransfer);
+  if (imgFiles.length === 0) return;
+
+  // Try File.path first (Electron specific), fallback to FileReader
+  const filesData = await Promise.all(imgFiles.map(f => {
+    return new Promise(async (resolve) => {
+      if (f.path) {
+        // Electron path is available — use the fast path
+        resolve({ path: f.path, name: null, data: null });
+      } else {
+        // Read file via FileReader as fallback
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve({ path: null, name: f.name, data: Array.from(new Uint8Array(reader.result)) });
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsArrayBuffer(f);
+      }
+    });
+  }));
+
+  const valid = filesData.filter(Boolean);
+  if (valid.length === 0) return;
+
+  // Split: path-based files vs data-based files
+  const pathFiles = valid.filter(f => f.path).map(f => f.path);
+  const dataFiles = valid.filter(f => f.data).map(f => ({ name: f.name, data: f.data }));
+
+  let imported = [];
+  if (pathFiles.length > 0) {
+    imported = imported.concat(await window.api.importPaths(pathFiles));
+  }
+  if (dataFiles.length > 0) {
+    imported = imported.concat(await window.api.importFileData(dataFiles));
+  }
+
+  if (imported.length > 0) {
+    await loadAll();
+    renderAll();
+  }
+}
+
 function setupGlobalDragDrop() {
   document.body.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -330,25 +379,7 @@ function setupGlobalDragDrop() {
     e.preventDefault();
     e.stopPropagation();
     imageGrid.classList.remove('drag-active');
-
-    const files = e.dataTransfer.files;
-    if (!files || files.length === 0) return;
-
-    // In Electron, File.path is available even with contextIsolation
-    const filePaths = [];
-    for (const f of files) {
-      if (f.path && /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(f.name)) {
-        filePaths.push(f.path);
-      }
-    }
-
-    if (filePaths.length > 0) {
-      const imported = await window.api.importPaths(filePaths);
-      if (imported && imported.length > 0) {
-        await loadAll();
-        renderAll();
-      }
-    }
+    await importFromDrop(e.dataTransfer);
   });
 }
 
@@ -371,24 +402,7 @@ function setupDropZone() {
     e.preventDefault();
     e.stopPropagation();
     dz.classList.remove('drag-over');
-
-    const files = e.dataTransfer.files;
-    if (!files || files.length === 0) return;
-
-    const filePaths = [];
-    for (const f of files) {
-      if (f.path && /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(f.name)) {
-        filePaths.push(f.path);
-      }
-    }
-
-    if (filePaths.length > 0) {
-      const imported = await window.api.importPaths(filePaths);
-      if (imported && imported.length > 0) {
-        await loadAll();
-        renderAll();
-      }
-    }
+    await importFromDrop(e.dataTransfer);
   });
 }
 
