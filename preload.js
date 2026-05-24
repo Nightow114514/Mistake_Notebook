@@ -19,4 +19,8 @@ contextBridge.exposeInMainWorld('api', {
 
   randomPick: (imageIds, count) => ipcRenderer.invoke('image:randomPick', imageIds, count),
   exportPdf: (imageIds) => ipcRenderer.invoke('pdf:export', imageIds),
+
+  getSettings: () => ipcRenderer.invoke('settings:getAll'),
+  saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
+  chooseDir: () => ipcRenderer.invoke('settings:chooseDir'),
 });

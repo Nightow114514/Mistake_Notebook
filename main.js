@@ -3,11 +3,13 @@ const path = require('path');
 const fs = require('fs');
 const { PDFDocument } = require('pdf-lib');
 const db = require('./database');
+const appSettings = require('./settings');
 
 let mainWindow = null;
 
 function ensureStorageDir() {
-  const dir = path.join(app.getPath('userData'), 'images');
+  const custom = appSettings.get('storageDir');
+  const dir = custom || path.join(app.getPath('userData'), 'images');
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -32,7 +34,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  // Init database
+  // Init settings and database
+  appSettings.init(app.getPath('userData'));
   const dbPath = path.join(app.getPath('userData'), 'screenshots.db');
   await db.init(dbPath);
   ensureStorageDir();
@@ -216,6 +219,25 @@ function registerIpcHandlers() {
   ipcMain.handle('tag:delete', (_event, id) => {
     db.deleteTag(id);
     return { success: true };
+  });
+
+  // --- Settings ---
+  ipcMain.handle('settings:getAll', () => {
+    return appSettings.getAll();
+  });
+
+  ipcMain.handle('settings:save', (_event, newSettings) => {
+    appSettings.setAll(newSettings);
+    return { success: true };
+  });
+
+  ipcMain.handle('settings:chooseDir', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择截图存储目录',
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
   });
 
   // --- Image-Tag linking ---

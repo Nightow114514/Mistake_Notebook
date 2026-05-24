@@ -14,6 +14,7 @@
         <span id="selectionInfo" class="selection-info hidden"></span>
         <button id="importBtn" class="btn btn-primary">导入截图</button>
         <button id="exportPdfBtn" class="btn btn-secondary">导出PDF</button>
+        <button id="settingsBtn" class="btn-icon" title="设置">⚙</button>
       </div>
     </header>
 
@@ -85,6 +86,39 @@
       <div class="preview-info">
         <span id="previewName"></span>
         <span id="previewTags" class="image-card-tags"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>设置</h3>
+        <button class="modal-close" id="settingsModalClose">&times;</button>
+      </div>
+      <div id="settingsBody" style="padding:14px 18px">
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">深色模式</div>
+            <div class="setting-desc">切换深色/浅色主题</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="darkModeToggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div style="flex:1;margin-right:12px">
+            <div class="setting-label">截图存储位置</div>
+            <div class="setting-dir" id="settingStorageDir">默认位置</div>
+          </div>
+          <button id="chooseDirBtn" class="btn btn-sm btn-secondary">更改</button>
+        </div>
+        <div style="margin-top:14px;text-align:right">
+          <button id="settingsSaveBtn" class="btn btn-primary btn-sm">保存</button>
+        </div>
       </div>
     </div>
   </div>

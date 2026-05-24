@@ -22,12 +22,17 @@ const previewTags = document.getElementById('previewTags');
 const selectionInfo = document.getElementById('selectionInfo');
 const newTagParent = document.getElementById('newTagParent');
 let contextImageId = null;
+let appSettings = { darkMode: false, storageDir: '' };
 
 // --- Init ---
 document.addEventListener('DOMContentLoaded', async () => {
+  appSettings = await window.api.getSettings();
+  applyTheme(appSettings.darkMode);
+
   await loadAll();
   renderAll();
   setupGlobalDragDrop();
+  setupSettingsUI();
 });
 
 async function loadAll() {
@@ -704,6 +709,55 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') navigatePreview(-1);
   if (e.key === 'ArrowRight') navigatePreview(1);
 });
+
+// --- Settings ---
+function applyTheme(dark) {
+  document.body.classList.toggle('dark', dark);
+  document.getElementById('darkModeToggle').checked = dark;
+}
+
+function setupSettingsUI() {
+  const settingsModal = document.getElementById('settingsModal');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsClose = document.getElementById('settingsModalClose');
+  const darkModeToggle = document.getElementById('darkModeToggle');
+  const chooseDirBtn = document.getElementById('chooseDirBtn');
+  const saveBtn = document.getElementById('settingsSaveBtn');
+  const storageDirEl = document.getElementById('settingStorageDir');
+
+  function openSettings() {
+    darkModeToggle.checked = document.body.classList.contains('dark');
+    storageDirEl.textContent = appSettings.storageDir || '默认位置（用户数据目录）';
+    settingsModal.classList.remove('hidden');
+  }
+
+  function closeSettings() {
+    settingsModal.classList.add('hidden');
+  }
+
+  settingsBtn.addEventListener('click', openSettings);
+  settingsClose.addEventListener('click', closeSettings);
+  settingsModal.querySelector('.modal-overlay').addEventListener('click', closeSettings);
+
+  darkModeToggle.addEventListener('change', () => {
+    document.body.classList.toggle('dark', darkModeToggle.checked);
+  });
+
+  chooseDirBtn.addEventListener('click', async () => {
+    const dir = await window.api.chooseDir();
+    if (dir) {
+      appSettings.storageDir = dir;
+      storageDirEl.textContent = dir;
+    }
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    appSettings.darkMode = document.body.classList.contains('dark');
+    await window.api.saveSettings(appSettings);
+    closeSettings();
+    // If storage dir changed, future imports will use it
+  });
+}
 
 // --- Utils ---
 function escapeHtml(str) {
