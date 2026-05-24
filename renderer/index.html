@@ -11,6 +11,7 @@
     <header class="app-header">
       <h1>截图标签管理器</h1>
       <div class="toolbar">
+        <span id="selectionInfo" class="selection-info hidden"></span>
         <button id="importBtn" class="btn btn-primary">导入截图</button>
         <button id="exportPdfBtn" class="btn btn-secondary">导出PDF</button>
       </div>
@@ -33,7 +34,10 @@
           <div class="add-tag-form">
             <input type="text" id="newTagName" placeholder="标签名称" maxlength="20">
             <input type="color" id="newTagColor" value="#3b82f6">
-            <button id="addTagBtn" class="btn btn-sm btn-primary">添加</button>
+            <select id="newTagParent" class="input-sm" style="width:100%;margin-top:4px">
+              <option value="">(顶级标签)</option>
+            </select>
+            <button id="addTagBtn" class="btn btn-sm btn-primary" style="margin-top:4px">添加</button>
           </div>
           <ul id="tagList" class="tag-list"></ul>
         </section>
@@ -58,6 +62,7 @@
     <div class="context-item context-item-danger" data-action="delete">删除图片</div>
   </div>
 
+  <!-- Tag manage modal -->
   <div id="modal" class="modal hidden">
     <div class="modal-overlay"></div>
     <div class="modal-content">
@@ -66,6 +71,21 @@
         <button class="modal-close">&times;</button>
       </div>
       <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Image preview modal -->
+  <div id="previewModal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="preview-container">
+      <button class="modal-close preview-close">&times;</button>
+      <span class="preview-nav preview-prev">&lt;</span>
+      <img id="previewImage" src="" alt="">
+      <span class="preview-nav preview-next">&gt;</span>
+      <div class="preview-info">
+        <span id="previewName"></span>
+        <span id="previewTags" class="image-card-tags"></span>
+      </div>
     </div>
   </div>
 

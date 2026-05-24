@@ -3,22 +3,31 @@ let images = [];
 let tags = [];
 let selectedImageIds = new Set();
 let activeFilterTagIds = [];
+let collapsedTags = {}; // { tagId: true } for collapsed parents in tree
+let previewIndex = -1; // index in current view for prev/next navigation
+let currentViewIds = []; // image ids currently displayed (for preview nav)
 
 // --- DOM refs ---
 const imageGrid = document.getElementById('imageGrid');
-const dropZone = document.getElementById('dropZone');
 const filterTagsEl = document.getElementById('filterTags');
 const tagListEl = document.getElementById('tagList');
 const contextMenu = document.getElementById('contextMenu');
 const modal = document.getElementById('modal');
 const modalTitle = document.getElementById('modalTitle');
 const modalBody = document.getElementById('modalBody');
+const previewModal = document.getElementById('previewModal');
+const previewImage = document.getElementById('previewImage');
+const previewName = document.getElementById('previewName');
+const previewTags = document.getElementById('previewTags');
+const selectionInfo = document.getElementById('selectionInfo');
+const newTagParent = document.getElementById('newTagParent');
 let contextImageId = null;
 
 // --- Init ---
 document.addEventListener('DOMContentLoaded', async () => {
   await loadAll();
   renderAll();
+  setupGlobalDragDrop();
 });
 
 async function loadAll() {
@@ -26,6 +35,57 @@ async function loadAll() {
     window.api.getImages(activeFilterTagIds.length > 0 ? activeFilterTagIds : null),
     window.api.getTags(),
   ]);
+  currentViewIds = images.map(i => i.id);
+}
+
+// --- Tree helpers ---
+function getTagChildren(parentId) {
+  return tags.filter(t => t.parent_id === parentId);
+}
+
+function getTagDepth(tag) {
+  let depth = 0;
+  let cur = tag;
+  while (cur.parent_id) {
+    depth++;
+    cur = tags.find(t => t.id === cur.parent_id);
+    if (!cur) break;
+  }
+  return depth;
+}
+
+function isTagVisible(tag) {
+  // Visible if all ancestors are expanded
+  let cur = tag;
+  while (cur.parent_id) {
+    const parent = tags.find(t => t.id === cur.parent_id);
+    if (!parent) break;
+    if (collapsedTags[parent.id]) return false;
+    cur = parent;
+  }
+  return true;
+}
+
+function toggleCollapse(tagId) {
+  collapsedTags[tagId] = !collapsedTags[tagId];
+}
+
+// --- Build tag tree for parent selector ---
+function updateParentSelect() {
+  newTagParent.innerHTML = '<option value="">(顶级标签)</option>';
+  const roots = tags.filter(t => !t.parent_id);
+  addOptions(roots, 0);
+}
+
+function addOptions(tagList, depth) {
+  for (const t of tagList) {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = '  '.repeat(depth) + t.name;
+    newTagParent.appendChild(opt);
+    const children = tags.filter(c => c.parent_id === t.id);
+    if (children.length > 0) addOptions(children, depth + 1);
+  }
 }
 
 // --- Render ---
@@ -33,6 +93,8 @@ function renderAll() {
   renderFilterTags();
   renderTagList();
   renderImageGrid();
+  updateParentSelect();
+  updateSelectionBar();
 }
 
 function renderFilterTags() {
@@ -41,7 +103,9 @@ function renderFilterTags() {
     filterTagsEl.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">暂无标签</span>';
     return;
   }
-  for (const tag of tags) {
+  const flat = flattenTagTree();
+  for (const tag of flat) {
+    if (tag.parent_id && collapsedTags[tag.parent_id]) continue;
     const el = document.createElement('span');
     el.className = 'filter-tag' + (activeFilterTagIds.includes(tag.id) ? ' active' : '');
     el.textContent = tag.name;
@@ -51,29 +115,94 @@ function renderFilterTags() {
   }
 }
 
+function flattenTagTree() {
+  const result = [];
+  const roots = tags.filter(t => !t.parent_id);
+  function walk(list, depth) {
+    for (const t of list) {
+      result.push(t);
+      const children = tags.filter(c => c.parent_id === t.id);
+      if (children.length > 0) walk(children, depth + 1);
+    }
+  }
+  walk(roots, 0);
+  return result;
+}
+
 function renderTagList() {
   tagListEl.innerHTML = '';
   if (tags.length === 0) {
     tagListEl.innerHTML = '<li style="font-size:12px;color:var(--text-muted);padding:4px 8px">暂无标签</li>';
     return;
   }
-  for (const tag of tags) {
+  const roots = tags.filter(t => !t.parent_id);
+  renderTagTreeItems(roots, 0);
+}
+
+function renderTagTreeItems(subset, depth) {
+  for (const tag of subset) {
+    const children = tags.filter(t => t.parent_id === tag.id);
+    const hasChildren = children.length > 0;
+    const isCollapsed = !!collapsedTags[tag.id];
+
     const li = document.createElement('li');
     li.className = 'tag-list-item';
-    li.innerHTML = `
-      <span>
-        <span class="tag-list-color" style="background:${tag.color}"></span>
-        ${escapeHtml(tag.name)}
-      </span>
-      <span class="tag-list-actions">
-        <button data-action="edit" data-id="${tag.id}" data-name="${escapeHtml(tag.name)}" data-color="${tag.color}" title="编辑">&#9998;</button>
-        <button data-action="delete" data-id="${tag.id}" title="删除">&times;</button>
-      </span>
+    li.style.paddingLeft = (8 + depth * 16) + 'px';
+
+    const toggleSpan = document.createElement('span');
+    toggleSpan.className = 'tag-tree-toggle' + (hasChildren ? '' : ' empty');
+    toggleSpan.textContent = hasChildren ? (isCollapsed ? '▶' : '▼') : '';
+    toggleSpan.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (hasChildren) {
+        toggleCollapse(tag.id);
+        renderAll();
+      }
+    });
+
+    const nameSpan = document.createElement('span');
+    nameSpan.style.flex = '1';
+    nameSpan.innerHTML = `<span class="tag-list-color" style="background:${tag.color}"></span>${escapeHtml(tag.name)}`;
+
+    const actionsSpan = document.createElement('span');
+    actionsSpan.className = 'tag-list-actions';
+    actionsSpan.innerHTML = `
+      <button data-action="addChild" data-id="${tag.id}" title="添加子标签">+</button>
+      <button data-action="edit" data-id="${tag.id}" data-name="${escapeHtml(tag.name)}" data-color="${tag.color}" title="编辑">&#9998;</button>
+      <button data-action="delete" data-id="${tag.id}" title="删除">&times;</button>
     `;
-    li.querySelector('[data-action="edit"]').addEventListener('click', () => editTag(tag.id, tag.name, tag.color));
-    li.querySelector('[data-action="delete"]').addEventListener('click', () => deleteTag(tag.id));
+
+    li.appendChild(toggleSpan);
+    li.appendChild(nameSpan);
+    li.appendChild(actionsSpan);
+
+    li.querySelector('[data-action="addChild"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      prepareAddChildTag(tag.id, tag.name);
+    });
+    li.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      editTag(tag.id, tag.name, tag.color, tag.parent_id);
+    });
+    li.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteTag(tag.id);
+    });
+
     tagListEl.appendChild(li);
+
+    if (hasChildren && !isCollapsed) {
+      renderTagTreeItems(children, depth + 1);
+    }
   }
+}
+
+function prepareAddChildTag(parentId, parentName) {
+  document.getElementById('newTagName').value = '';
+  document.getElementById('newTagColor').value = '#3b82f6';
+  newTagParent.value = parentId;
+  document.getElementById('newTagName').placeholder = `子标签 (${parentName})`;
+  document.getElementById('newTagName').focus();
 }
 
 async function renderImageGrid() {
@@ -112,13 +241,27 @@ async function renderImageGrid() {
     card.addEventListener('click', (e) => {
       if (e.ctrlKey || e.metaKey) {
         toggleSelect(img.id, card);
-      } else {
-        // Clear multi-select if no ctrl
-        if (selectedImageIds.size > 0) {
-          clearSelection();
+      } else if (e.shiftKey && previewIndex >= 0) {
+        // shift-range select
+        const start = Math.min(previewIndex, images.findIndex(i => i.id === img.id));
+        const end = Math.max(previewIndex, images.findIndex(i => i.id === img.id));
+        clearSelection();
+        for (let k = start; k <= end; k++) {
+          selectedImageIds.add(images[k].id);
         }
-        toggleSelect(img.id, card);
+        renderImageGrid();
+      } else {
+        if (!selectedImageIds.has(img.id)) {
+          clearSelection();
+          toggleSelect(img.id, card);
+        }
+        previewIndex = images.findIndex(i => i.id === img.id);
       }
+    });
+
+    card.addEventListener('dblclick', () => {
+      previewIndex = images.findIndex(i => i.id === img.id);
+      openPreview(img.id);
     });
 
     card.addEventListener('contextmenu', (e) => {
@@ -128,8 +271,6 @@ async function renderImageGrid() {
     });
 
     imageGrid.appendChild(card);
-
-    // Load thumbnail
     loadThumbnail(img.id);
   }
 
@@ -155,14 +296,63 @@ function toggleSelect(id, cardEl) {
     selectedImageIds.add(id);
     if (cardEl) cardEl.classList.add('selected');
   }
+  updateSelectionBar();
 }
 
 function clearSelection() {
   selectedImageIds.clear();
-  document.querySelectorAll('.image-card.selected').forEach(c => c.classList.remove('selected'));
 }
 
-// --- Drop zone ---
+function updateSelectionBar() {
+  if (selectedImageIds.size > 0) {
+    selectionInfo.textContent = `已选 ${selectedImageIds.size} 张`;
+    selectionInfo.classList.remove('hidden');
+  } else {
+    selectionInfo.classList.add('hidden');
+  }
+}
+
+// --- Global drag-drop (for entire window) ---
+function setupGlobalDragDrop() {
+  document.body.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    imageGrid.classList.add('drag-active');
+  });
+
+  document.body.addEventListener('dragleave', (e) => {
+    if (e.target === document.body) {
+      imageGrid.classList.remove('drag-active');
+    }
+  });
+
+  document.body.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    imageGrid.classList.remove('drag-active');
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    // In Electron, File.path is available even with contextIsolation
+    const filePaths = [];
+    for (const f of files) {
+      if (f.path && /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(f.name)) {
+        filePaths.push(f.path);
+      }
+    }
+
+    if (filePaths.length > 0) {
+      const imported = await window.api.importPaths(filePaths);
+      if (imported && imported.length > 0) {
+        await loadAll();
+        renderAll();
+      }
+    }
+  });
+}
+
+// --- Drop zone (for empty grid) ---
 function setupDropZone() {
   const dz = imageGrid.querySelector('#dropZone');
   if (!dz) return;
@@ -182,14 +372,23 @@ function setupDropZone() {
     e.stopPropagation();
     dz.classList.remove('drag-over');
 
-    const files = Array.from(e.dataTransfer.files).filter(f => /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(f.name));
-    if (files.length === 0) return;
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
 
-    // Electron doesn't support HTML5 file drop natively for getting paths.
-    // We need to use the import button flow. Show a hint.
-    // Actually, for Electron with contextIsolation, we can't read file.path.
-    // We'll use a workaround: send the file to main process via a hidden flow.
-    alert('请使用"导入截图"按钮导入图片');
+    const filePaths = [];
+    for (const f of files) {
+      if (f.path && /\.(png|jpg|jpeg|webp|bmp|gif)$/i.test(f.name)) {
+        filePaths.push(f.path);
+      }
+    }
+
+    if (filePaths.length > 0) {
+      const imported = await window.api.importPaths(filePaths);
+      if (imported && imported.length > 0) {
+        await loadAll();
+        renderAll();
+      }
+    }
   });
 }
 
@@ -240,6 +439,8 @@ document.getElementById('clearFilterBtn').addEventListener('click', () => {
 async function refreshFilter() {
   clearSelection();
   images = await window.api.getImages(activeFilterTagIds.length > 0 ? activeFilterTagIds : null);
+  currentViewIds = images.map(i => i.id);
+  previewIndex = -1;
   renderAll();
 }
 
@@ -262,30 +463,49 @@ document.getElementById('randomPickBtn').addEventListener('click', async () => {
 document.getElementById('addTagBtn').addEventListener('click', async () => {
   const nameInput = document.getElementById('newTagName');
   const colorInput = document.getElementById('newTagColor');
+  const parentSelect = document.getElementById('newTagParent');
   const name = nameInput.value.trim();
   if (!name) return;
 
-  const result = await window.api.createTag(name, colorInput.value);
+  const parentId = parentSelect.value ? parseInt(parentSelect.value) : null;
+  const result = await window.api.createTag(name, colorInput.value, parentId);
   if (result.error) {
     alert(result.error);
     return;
   }
   nameInput.value = '';
+  nameInput.placeholder = '标签名称';
+  parentSelect.value = '';
   await loadAll();
   renderAll();
 });
 
-// Enter key on tag name input
 document.getElementById('newTagName').addEventListener('keydown', async (e) => {
   if (e.key === 'Enter') {
     document.getElementById('addTagBtn').click();
   }
 });
 
-async function editTag(id, name, color) {
+async function editTag(id, name, color, parentId) {
   const newName = prompt('编辑标签名称：', name);
   if (!newName || !newName.trim()) return;
-  const result = await window.api.updateTag(id, newName.trim(), color);
+
+  // Let user change parent via simple prompt
+  let newParentId = null;
+  const parentOpts = tags.filter(t => t.id !== id);
+  if (parentOpts.length > 0) {
+    const parentInput = prompt(
+      '父标签ID（留空为顶级标签）：\n' +
+      parentOpts.map(t => `${t.id}: ${t.name}`).join('\n'),
+      parentId || ''
+    );
+    if (parentInput !== null && parentInput.trim()) {
+      newParentId = parseInt(parentInput.trim());
+      if (!parentOpts.find(t => t.id === newParentId)) newParentId = null;
+    }
+  }
+
+  const result = await window.api.updateTag(id, newName.trim(), color, newParentId);
   if (result.error) {
     alert(result.error);
     return;
@@ -295,7 +515,7 @@ async function editTag(id, name, color) {
 }
 
 async function deleteTag(id) {
-  if (!confirm('确定删除该标签？所有图片上的此标签将被移除。')) return;
+  if (!confirm('确定删除该标签？所有图片上的此标签将被移除，子标签会提升为顶级。')) return;
   await window.api.deleteTag(id);
   activeFilterTagIds = activeFilterTagIds.filter(tid => tid !== id);
   await loadAll();
@@ -341,7 +561,7 @@ function closeModal() {
 }
 
 document.querySelector('.modal-close').addEventListener('click', closeModal);
-document.querySelector('.modal-overlay').addEventListener('click', closeModal);
+document.querySelector('.modal-overlay')?.addEventListener('click', closeModal);
 
 // --- Tag manage modal ---
 async function showTagManageModal(imageId) {
@@ -351,22 +571,17 @@ async function showTagManageModal(imageId) {
   const allTags = await window.api.getTags();
   const imageTagIds = new Set(img.tags.map(t => t.id));
 
+  // Build tree of checkboxes
   let bodyHtml = '';
   if (allTags.length === 0) {
     bodyHtml = '<p style="font-size:13px;color:var(--text-muted)">暂无标签，请先在侧边栏创建标签</p>';
   } else {
-    bodyHtml = allTags.map(t => `
-      <label class="modal-tag-item">
-        <input type="checkbox" value="${t.id}" ${imageTagIds.has(t.id) ? 'checked' : ''}>
-        <span class="modal-tag-color" style="background:${t.color}"></span>
-        ${escapeHtml(t.name)}
-      </label>
-    `).join('');
+    const roots = allTags.filter(t => !t.parent_id);
+    bodyHtml = '<div style="max-height:50vh;overflow-y:auto">' + buildTagCheckboxTree(roots, allTags, imageTagIds, 0) + '</div>';
   }
 
   showModal('管理标签 — ' + img.original_name, bodyHtml);
 
-  // Bind checkbox changes
   modalBody.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', async () => {
       const tagId = parseInt(cb.value);
@@ -375,16 +590,35 @@ async function showTagManageModal(imageId) {
       } else {
         await window.api.removeTagFromImage(imageId, tagId);
       }
-      // Refresh local state
-      const updated = await window.api.getImages(activeFilterTagIds.length > 0 ? activeFilterTagIds : null);
       const idx = images.findIndex(i => i.id === imageId);
-      const updatedImg = updated.find(i => i.id === imageId);
-      if (idx >= 0 && updatedImg) {
-        images[idx] = updatedImg;
-        renderImageGrid();
+      if (idx >= 0) {
+        const tagsForImg = await window.api.getImages(activeFilterTagIds.length > 0 ? activeFilterTagIds : null);
+        const updated = tagsForImg.find(i => i.id === imageId);
+        if (updated) {
+          images[idx] = updated;
+          renderImageGrid();
+        }
       }
     });
   });
+}
+
+function buildTagCheckboxTree(subset, allTags, selectedSet, depth) {
+  let html = '';
+  for (const tag of subset) {
+    html += `
+      <label class="modal-tag-item" style="padding-left:${depth * 20}px">
+        <input type="checkbox" value="${tag.id}" ${selectedSet.has(tag.id) ? 'checked' : ''}>
+        <span class="modal-tag-color" style="background:${tag.color}"></span>
+        ${escapeHtml(tag.name)}
+      </label>
+    `;
+    const children = allTags.filter(t => t.parent_id === tag.id);
+    if (children.length > 0) {
+      html += buildTagCheckboxTree(children, allTags, selectedSet, depth + 1);
+    }
+  }
+  return html;
 }
 
 // --- Random result modal ---
@@ -406,7 +640,6 @@ function showRandomModal(picked) {
   `;
   showModal('随机抽取结果 (' + picked.length + ' 张)', bodyHtml);
 
-  // Load thumbnails
   for (const img of picked) {
     window.api.getThumbnail(img.id).then(dataUrl => {
       const el = modalBody.querySelector(`[data-load-id="${img.id}"]`);
@@ -414,6 +647,49 @@ function showRandomModal(picked) {
     });
   }
 }
+
+// --- Preview (full-size image) ---
+async function openPreview(imageId) {
+  const dataUrl = await window.api.getFullImage(imageId);
+  if (!dataUrl) return;
+
+  const img = images.find(i => i.id === imageId);
+  previewImage.src = dataUrl;
+  previewName.textContent = img ? img.original_name : '';
+  if (img) {
+    previewTags.innerHTML = img.tags.map(t =>
+      `<span class="image-card-tag" style="background:${t.color}">${escapeHtml(t.name)}</span>`
+    ).join('');
+  }
+  previewModal.classList.remove('hidden');
+}
+
+function closePreview() {
+  previewModal.classList.add('hidden');
+  previewImage.src = '';
+}
+
+function navigatePreview(direction) {
+  if (currentViewIds.length === 0) return;
+  previewIndex = (previewIndex + direction + currentViewIds.length) % currentViewIds.length;
+  // Update card selection
+  clearSelection();
+  selectedImageIds.add(currentViewIds[previewIndex]);
+  openPreview(currentViewIds[previewIndex]);
+  renderImageGrid();
+}
+
+document.querySelector('.preview-close').addEventListener('click', closePreview);
+document.querySelector('#previewModal .modal-overlay').addEventListener('click', closePreview);
+document.querySelector('.preview-prev').addEventListener('click', () => navigatePreview(-1));
+document.querySelector('.preview-next').addEventListener('click', () => navigatePreview(1));
+
+document.addEventListener('keydown', (e) => {
+  if (previewModal.classList.contains('hidden')) return;
+  if (e.key === 'Escape') closePreview();
+  if (e.key === 'ArrowLeft') navigatePreview(-1);
+  if (e.key === 'ArrowRight') navigatePreview(1);
+});
 
 // --- Utils ---
 function escapeHtml(str) {

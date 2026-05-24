@@ -50,23 +50,11 @@ app.on('window-all-closed', () => {
 });
 
 function registerIpcHandlers() {
-  // --- Image import ---
-  ipcMain.handle('image:import', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: '选择截图文件',
-      filters: [
-        { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] },
-        { name: '所有文件', extensions: ['*'] },
-      ],
-      properties: ['openFile', 'multiSelections'],
-    });
-
-    if (result.canceled || result.filePaths.length === 0) return [];
-
+  function importFiles(filePaths) {
     const storageDir = ensureStorageDir();
     const imported = [];
 
-    for (const srcPath of result.filePaths) {
+    for (const srcPath of filePaths) {
       const ext = path.extname(srcPath);
       const originalName = path.basename(srcPath);
       const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
@@ -102,6 +90,27 @@ function registerIpcHandlers() {
     }
 
     return imported;
+  }
+
+  // --- Image import via dialog ---
+  ipcMain.handle('image:import', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择截图文件',
+      filters: [
+        { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'] },
+        { name: '所有文件', extensions: ['*'] },
+      ],
+      properties: ['openFile', 'multiSelections'],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) return [];
+    return importFiles(result.filePaths);
+  });
+
+  // --- Image import via drag-drop paths ---
+  ipcMain.handle('image:importPaths', (_event, filePaths) => {
+    if (!filePaths || filePaths.length === 0) return [];
+    return importFiles(filePaths);
   });
 
   // --- Get all images (optionally filtered by tags) ---
@@ -123,6 +132,19 @@ function registerIpcHandlers() {
     }
   });
 
+  // --- Get full-size image for preview ---
+  ipcMain.handle('image:getFull', (_event, id) => {
+    const img = db.getImageById(id);
+    if (!img) return null;
+
+    try {
+      const nImg = nativeImage.createFromPath(img.file_path);
+      return nImg.toDataURL();
+    } catch {
+      return null;
+    }
+  });
+
   // --- Delete image ---
   ipcMain.handle('image:delete', (_event, id) => {
     const filePath = db.deleteImage(id);
@@ -137,12 +159,12 @@ function registerIpcHandlers() {
     return db.getTags();
   });
 
-  ipcMain.handle('tag:create', (_event, name, color) => {
-    return db.createTag(name, color);
+  ipcMain.handle('tag:create', (_event, name, color, parentId) => {
+    return db.createTag(name, color, parentId || null);
   });
 
-  ipcMain.handle('tag:update', (_event, id, name, color) => {
-    return db.updateTag(id, name, color);
+  ipcMain.handle('tag:update', (_event, id, name, color, parentId) => {
+    return db.updateTag(id, name, color, parentId || null);
   });
 
   ipcMain.handle('tag:delete', (_event, id) => {

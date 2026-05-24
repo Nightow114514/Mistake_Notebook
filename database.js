@@ -37,9 +37,18 @@ async function init(filePath) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       color TEXT NOT NULL DEFAULT '#3b82f6',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      parent_id INTEGER DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (parent_id) REFERENCES tags(id) ON DELETE SET NULL
     )
   `);
+
+  // Migration: add parent_id if upgrading from old schema
+  try {
+    db.run('ALTER TABLE tags ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES tags(id) ON DELETE SET NULL');
+  } catch {
+    // column already exists
+  }
 
   db.run(`
     CREATE TABLE IF NOT EXISTS image_tags (
@@ -62,13 +71,11 @@ function save() {
   fs.writeFileSync(dbPath, Buffer.from(data));
 }
 
-// Helper: run SQL that modifies data, then save
 function exec(sql, params = []) {
   db.run(sql, params);
   save();
 }
 
-// Helper: get all rows from a SELECT
 function queryAll(sql, params = []) {
   const stmt = db.prepare(sql);
   stmt.bind(params);
@@ -80,7 +87,6 @@ function queryAll(sql, params = []) {
   return rows;
 }
 
-// Helper: get first row from a SELECT
 function queryOne(sql, params = []) {
   const stmt = db.prepare(sql);
   stmt.bind(params);
@@ -100,38 +106,54 @@ function addImage({ filename, originalName, filePath, fileSize, format }) {
   return result.id;
 }
 
+function getDescendantIds(tagId) {
+  const result = [];
+  const children = queryAll('SELECT id FROM tags WHERE parent_id = ?', [tagId]);
+  for (const child of children) {
+    result.push(child.id);
+    result.push(...getDescendantIds(child.id));
+  }
+  return result;
+}
+
+function expandTagIds(tagIds) {
+  // Returns array of [group0_ids[], group1_ids[], ...]
+  return tagIds.map(tid => [tid, ...getDescendantIds(tid)]);
+}
+
 function getImages(tagIds = null) {
-  let images;
+  let imageRows;
   if (tagIds && tagIds.length > 0) {
-    const placeholders = tagIds.map(() => '?').join(',');
-    images = queryAll(
-      `SELECT i.* FROM images i
-       JOIN image_tags it ON i.id = it.image_id
-       WHERE it.tag_id IN (${placeholders})
-       GROUP BY i.id
-       HAVING COUNT(DISTINCT it.tag_id) = ?
-       ORDER BY i.created_at DESC`,
-      [...tagIds, tagIds.length]
-    );
+    const groups = expandTagIds(tagIds);
+    // Build query: JOIN one alias per tag group so images must match ALL groups (intersection)
+    let sql = 'SELECT DISTINCT i.* FROM images i';
+    const params = [];
+    for (let g = 0; g < groups.length; g++) {
+      const ph = groups[g].map(() => '?').join(',');
+      sql += `\n  JOIN image_tags it${g} ON i.id = it${g}.image_id AND it${g}.tag_id IN (${ph})`;
+      params.push(...groups[g]);
+    }
+    sql += '\n ORDER BY i.created_at DESC';
+    imageRows = queryAll(sql, params);
   } else {
-    images = queryAll('SELECT * FROM images ORDER BY created_at DESC');
+    imageRows = queryAll('SELECT * FROM images ORDER BY created_at DESC');
   }
 
-  for (const img of images) {
+  for (const img of imageRows) {
     img.tags = queryAll(
-      'SELECT t.id, t.name, t.color FROM tags t JOIN image_tags it ON t.id = it.tag_id WHERE it.image_id = ?',
+      'SELECT t.id, t.name, t.color, t.parent_id FROM tags t JOIN image_tags it ON t.id = it.tag_id WHERE it.image_id = ?',
       [img.id]
     );
   }
 
-  return images;
+  return imageRows;
 }
 
 function getImageById(id) {
   const img = queryOne('SELECT * FROM images WHERE id = ?', [id]);
   if (img) {
     img.tags = queryAll(
-      'SELECT t.id, t.name, t.color FROM tags t JOIN image_tags it ON t.id = it.tag_id WHERE it.image_id = ?',
+      'SELECT t.id, t.name, t.color, t.parent_id FROM tags t JOIN image_tags it ON t.id = it.tag_id WHERE it.image_id = ?',
       [id]
     );
   }
@@ -147,11 +169,11 @@ function deleteImage(id) {
 
 // --- Tag operations ---
 
-function createTag(name, color = '#3b82f6') {
+function createTag(name, color = '#3b82f6', parentId = null) {
   try {
-    exec('INSERT INTO tags (name, color) VALUES (?, ?)', [name, color]);
+    exec('INSERT INTO tags (name, color, parent_id) VALUES (?, ?, ?)', [name, color, parentId]);
     const result = queryOne('SELECT last_insert_rowid() as id');
-    return { id: result.id, name, color };
+    return { id: result.id, name, color, parent_id: parentId };
   } catch (e) {
     if (e.message && e.message.includes('UNIQUE')) {
       return { error: '标签名称已存在' };
@@ -161,13 +183,13 @@ function createTag(name, color = '#3b82f6') {
 }
 
 function getTags() {
-  return queryAll('SELECT * FROM tags ORDER BY created_at DESC');
+  return queryAll('SELECT * FROM tags ORDER BY parent_id IS NOT NULL, parent_id, id');
 }
 
-function updateTag(id, name, color) {
+function updateTag(id, name, color, parentId) {
   try {
-    exec('UPDATE tags SET name = ?, color = ? WHERE id = ?', [name, color, id]);
-    return { id, name, color };
+    exec('UPDATE tags SET name = ?, color = ?, parent_id = ? WHERE id = ?', [name, color, parentId, id]);
+    return { id, name, color, parent_id: parentId };
   } catch (e) {
     if (e.message && e.message.includes('UNIQUE')) {
       return { error: '标签名称已存在' };
@@ -177,6 +199,8 @@ function updateTag(id, name, color) {
 }
 
 function deleteTag(id) {
+  // Unlink children first
+  exec('UPDATE tags SET parent_id = NULL WHERE parent_id = ?', [id]);
   exec('DELETE FROM tags WHERE id = ?', [id]);
 }
 
@@ -211,7 +235,7 @@ function getRandomImages(imageIds, count) {
 
   for (const img of images) {
     img.tags = queryAll(
-      'SELECT t.id, t.name, t.color FROM tags t JOIN image_tags it ON t.id = it.tag_id WHERE it.image_id = ?',
+      'SELECT t.id, t.name, t.color, t.parent_id FROM tags t JOIN image_tags it ON t.id = it.tag_id WHERE it.image_id = ?',
       [img.id]
     );
   }
@@ -226,4 +250,4 @@ function close() {
   }
 }
 
-module.exports = { init, addImage, getImages, getImageById, deleteImage, createTag, getTags, updateTag, deleteTag, addTagToImage, removeTagFromImage, getRandomImages, close };
+module.exports = { init, addImage, getImages, getImageById, deleteImage, createTag, getTags, updateTag, deleteTag, addTagToImage, removeTagFromImage, getRandomImages, getDescendantIds, expandTagIds, close };
