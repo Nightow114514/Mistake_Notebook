@@ -4,13 +4,15 @@
   "description": "错题笔记本",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-packager . \"错题笔记本\" --platform=win32 --arch=x64 --out=dist --overwrite --asar"
   },
   "dependencies": {
     "pdf-lib": "^1.17.1",
     "sql.js": "^1.12.0"
   },
   "devDependencies": {
-    "electron": "^35.6.1"
+    "electron": "^35.6.1",
+    "electron-packager": "^17.1.2"
   }
 }

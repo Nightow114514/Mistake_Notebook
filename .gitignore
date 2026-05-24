@@ -4,3 +4,4 @@ storage/
 .claude/
 skills/
 PROMPT.md
+dist/
